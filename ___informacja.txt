@@ -1,0 +1,41 @@
+nalezy uruchomic w srodowisku wirtualnym venv
+   i wykorzystac zalaczony plik requirements.txt
+
+uruchomienie poleceniem:
+
+ python main.py
+
+w przegladarce wwww otworzyc...
+ http://127.0.0.1:8000  lub 8001 lub 8002 ...
+
+program szuka wolnego portu wiec jezeli zajety 8000 przobuje 8001 itd.
+
+w przegladarce widac panele kontrolne dla APP z zadania
+
+PODSUMOWANIE ZAWARTOSCI PANELI  
+
+w sekcji 'Cloud App Status'
+wartosci nie sa uaktualnine, BUG wlasnie w trakcje naprawy...
+
+Device A  tylko wysyla wartosc swego rejestru ktore zmieniaja sie 3x na minute w zaleznosci ktora jest sekunda biezacej minuty (1: 0-20s, 2: 21-40s, 3: 41-60s)
+
+Device B  obok sygnalizacji 'Watchdog',  pozwala na ustawienie wartosci wewnetrznego rejestru 'Control Value', ktora potem jest wysylana do Module C
+
+Module C   pokazuje 2 wartosci otrzymane z Device A oraz Device B oraz rezultat prostego przykladowego  oblicznia na tych wartosciach, jest to suma z wartosci A i B, pomnozona przez wartosc zalezna od wskazania  czasu
+        """Get operational value to multiply based on current second:
+        1:    01-15 seconds
+        10:   16-30 seconds
+        100:  31-45 seconds
+        1000: 46-00 seconds
+        """
+jest przykladowa operacja taka aby jej efekt w sposob jasny pokazywal poprawnosc 
+
+
+Watchdog Control   pozwala na reczne zresetowane lub na ustawienie czastotliwosci automatycznego resetowania
+
+Simulation Rate Control   pozwala na zmienianie tempa symulucji prcoesu, dla analizy itp.
+
+
+Algorytm symulujacy opiera sie na aplikacji "APP w chmurze" lub "Cloud App" ktora stanowi wezel centralny dla wszelkiej komunikacji "pipeline", za posrednictwem bramek CANFrame
+ 
+

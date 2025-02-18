@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CAN TCP Monitor</title>
+    <link rel="stylesheet" type="text/css" href="/static/styles.css">
+    <style>
+        /* Fallback styles in case external CSS fails to load */
+        body {
+            background: linear-gradient(135deg, #f0f2f5 0%, #e6e9f0 100%);
+            color: #2c3e50;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>CAN TCP Monitor</h1>
+    
+    <div class="main-grid">
+        <!-- Left section: Device panels -->
+        <div class="left-section">
+            <div class="devices-grid">
+                <div class="device-panel" id="deviceA">
+                    <h2>Device A</h2>
+                    <div>
+                        <span class="status-indicator" id="deviceAStatus"></span>
+                        <span>Status</span>
+                    </div>
+                    <div id="deviceAInfo"></div>
+                </div>
+                
+                <div class="device-panel" id="deviceB">
+                    <h2>Device B</h2>
+                    <div>
+                        <span class="status-indicator" id="deviceBStatus"></span>
+                        <span>Status</span>
+                    </div>
+                    <div class="device-values">
+                        <div class="value-row">
+                            <span class="label">Control Value:</span>
+                            <span class="control-value" id="deviceBControl">0</span>
+                        </div>
+                        <div class="value-row">
+                            <span class="label">Watchdog Status:</span>
+                            <span class="watchdog-status" id="deviceBWatchdog">-</span>
+                        </div>
+                        <div class="value-row">
+                            <span class="label">Last Command:</span>
+                            <span class="value" id="deviceBLastCommand">-</span>
+                        </div>
+                    </div>
+                    <div class="control-input">
+                        <input type="number" id="controlValue" placeholder="Enter control value" min="0" max="255">
+                        <button onclick="sendControlValue()">Set Control Value</button>
+                    </div>
+                </div>
+                
+                <div class="device-panel" id="moduleC">
+                    <h2>Module C</h2>
+                    <div>
+                        <span class="status-indicator" id="moduleCStatus"></span>
+                        <span>Status</span>
+                    </div>
+                    <div class="device-values">
+                        <div class="value-row">
+                            <span class="label">Device A Value:</span>
+                            <span class="value" id="moduleCDeviceA">0</span>
+                        </div>
+                        <div class="value-row">
+                            <span class="label">Device B Value:</span>
+                            <span class="value" id="moduleCDeviceB">0</span>
+                        </div>
+                        <div class="value-row">
+                            <span class="label">Calculation Result:</span>
+                            <span class="calculation-result" id="moduleCResult">0.000</span>
+                        </div>
+                        <div class="value-row">
+                            <span class="label">Last Calculation:</span>
+                            <span class="value" id="moduleCLastCalc">-</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right section -->
+        <div class="right-section">
+            <!-- Cloud App Status -->
+            <div class="device-panel" id="cloudApp">
+                <div class="cloud-app-content">
+                    <h2>Cloud App Status</h2>
+                    <div class="pipeline-section">
+                        <div class="server-status">
+                            <span class="status-label">Server Status:</span>
+                            <span id="serverState" class="server-state running">Running</span>
+                        </div>
+                        <div class="pipeline-stats">
+                            <div id="deviceAFrames" class="stat-item">
+                                <span class="label">Device A Frames:</span><span class="value">0</span>
+                            </div>
+                            <div id="deviceBFrames" class="stat-item">
+                                <span class="label">Device B Frames:</span><span class="value">0</span>
+                            </div>
+                            <div id="controlFrames" class="stat-item">
+                                <span class="label">Control Messages:</span><span class="value">0</span>
+                            </div>
+                            <div id="watchdogFrames" class="stat-item">
+                                <span class="label">Watchdog Messages:</span><span class="value">0</span>
+                            </div>
+                        </div>
+                        <div class="pipeline-timing">
+                            <div id="deviceARate" class="timing-item">
+                                <span class="label">Device A Rate:</span><span class="value">0 fps</span>
+                            </div>
+                            <div id="deviceBRate" class="timing-item">
+                                <span class="label">Device B Rate:</span><span class="value">0 fps</span>
+                            </div>
+                            <div id="controlStatus" class="timing-item">
+                                <span class="label">Control Status:</span><span class="value" data-status="Idle">Idle</span>
+                            </div>
+                            <div id="watchdogMode" class="timing-item">
+                                <span class="label">Watchdog Mode:</span><span class="value" data-mode="Manual">Manual</span>
+                            </div>
+                        </div>
+                        <div class="pipeline-status">
+                            <div id="pipelineState" class="status-item">
+                                <span class="label">Pipeline Status:</span><span class="value" data-status="Idle">Idle</span>
+                            </div>
+                            <div id="lastFrameTime" class="status-item">
+                                <span class="label">Last Frame:</span><span class="value">Never</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Watchdog Control -->
+            <div class="device-panel" id="watchdogPanel">
+                <h2>Watchdog Control <span id="watchdogStatus" class="watchdog-status">Disabled</span></h2>
+                <div class="watchdog-settings">
+                    <div class="watchdog-input">
+                        <label for="watchdogInterval">Auto Reset Interval (seconds):</label>
+                        <input type="number" id="watchdogInterval" min="0" max="50" step="0.1" value="0" class="watchdog-input">
+                        <div class="input-hint">Set to 0 to disable auto reset (max 50s)</div>
+                    </div>
+                    <button onclick="setWatchdogInterval()" class="watchdog-button">Set Auto Reset Interval</button>
+                    <button onclick="resetWatchdog()" class="watchdog-button manual-reset">Manual Reset</button>
+                </div>
+                <div id="watchdogInfo" class="watchdog-info"></div>
+            </div>
+
+            <!-- Simulation Control -->
+            <div class="device-panel simulation-control">
+                <h2>Simulation Rate Control <span id="speedIndicator" class="simulation-speed normal">1.0x</span></h2>
+                <div class="slider-container">
+                    <input type="range" id="simSpeed" min="0.1" max="50" step="0.1" value="1.0">
+                    <span id="simSpeedValue">1.0x</span>
+                </div>
+                <div class="speed-ranges">
+                    <span class="speed-range fast">Fast (<1x)</span>
+                    <span class="speed-range normal">Normal (1x)</span>
+                    <span class="speed-range slow">Slow (1-10x)</span>
+                </div>
+                <div class="control-buttons">
+                    <button type="button" id="freezeButton" onclick="toggleFreeze()" class="control-button">
+                        <span class="button-text">Freeze</span>
+                    </button>
+                    <button onclick="haltServer()" class="control-button halt">Halt</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Log section at the bottom -->
+    <div class="log-container" id="logContainer">
+        <h3>Event Log</h3>
+        <div id="log"></div>
+    </div>
+
+    <script>
+        let ws = null;
+        let statusUpdateInterval;
+        let isFrozen = false;  // Add global frozen state tracker
+
+        function addLogEntry(message) {
+            const log = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.textContent = `${new Date().toLocaleTimeString()} - ${message}`;
+            log.insertBefore(entry, log.firstChild);
+        }
+
+        // Add value change tracking and animation
+        let previousValues = {};
+        
+
+        function hasValueChanged(elementId, newValue) {
+            if (previousValues[elementId] !== newValue) {
+                previousValues[elementId] = newValue;
+                return true;
+            }
+            return false;
+        }
+
+        function updateDeviceStatus(device, data) {
+            if (!data) return;  // Skip if no data provided
+            
+            const statusElement = document.getElementById(`${device}Status`);
+            statusElement.className = 'status-indicator online';
+            
+            if (device === 'deviceA') {
+                let html = '<div class="device-values">';
+                html += `<div class="value-row">
+                    <span class="label">Operational:</span>
+                    <span class="operational-value value-${data.operational}">${data.operational}</span>
+                </div>`;
+                html += `<div class="value-row">
+                    <span class="label">Frame Rate:</span>
+                    <span class="value">${data.frame_rate} fps</span>
+                </div>`;
+                html += `<div class="value-row">
+                    <span class="label">Uptime:</span>
+                    <span class="value">${data.uptime}s</span>
+                </div>`;
+                html += '</div>';
+                const infoElement = document.getElementById('deviceAInfo');
+                infoElement.innerHTML = html;
+            } else if (device === 'deviceB') {
+                // Update control value
+                const controlElement = document.getElementById('deviceBControl');
+                controlElement.textContent = data.control || '0';
+                controlElement.className = `control-value ${data.control ? 'active' : ''}`;
+                
+                // Update watchdog status
+                const watchdogElement = document.getElementById('deviceBWatchdog');
+                watchdogElement.textContent = data.watchdog_status;
+                watchdogElement.className = `watchdog-status ${data.watchdog_status === 'ok' ? 'active' : 'triggered'}`;
+                
+                // Update last command time
+                const lastCommandElement = document.getElementById('deviceBLastCommand');
+                lastCommandElement.textContent = data.last_command || '-';
+                
+            } else if (device === 'moduleC') {
+                // Update Device A value
+                document.getElementById('moduleCDeviceA').textContent = data.device_a || '0';
+                
+                // Update Device B value
+                document.getElementById('moduleCDeviceB').textContent = data.device_b || '0';
+                
+                // Update calculation result
+                document.getElementById('moduleCResult').textContent = (data.calculation_result || 0).toFixed(3);
+                
+                // Update last calculation time
+                const lastCalcElement = document.getElementById('moduleCLastCalc');
+                lastCalcElement.textContent = data.last_calculation_time ? 
+                    new Date(data.last_calculation_time * 1000).toLocaleTimeString() : '-';
+            }
+            
+            // Trigger animation for changed values
+            if (previousValues[device] !== JSON.stringify(data)) {
+                previousValues[device] = JSON.stringify(data);
+                const panel = document.getElementById(device);
+                panel.querySelectorAll('.value, .control-value, .watchdog-status, .calculation-result, .operational-value').forEach(el => {
+                    el.classList.remove('changed');
+                    void el.offsetWidth; // Trigger reflow
+                    el.classList.add('changed');
+                });
+            }
+        }
+
+        function connectWebSocket() {
+            const serverUrl = window.location.origin;
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${wsProtocol}//${window.location.host}/ws`;
+            
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = () => {
+                addLogEntry(`WebSocket connected on ${serverUrl}`);
+                document.querySelectorAll('.status-indicator').forEach(el => {
+                    el.className = 'status-indicator online';
+                });
+            };
+            
+            ws.onclose = () => {
+                addLogEntry('WebSocket disconnected');
+                document.querySelectorAll('.status-indicator').forEach(el => {
+                    el.className = 'status-indicator offline';
+                });
+                
+                const serverState = document.getElementById('serverState');
+                if (serverState) {
+                    serverState.textContent = 'Disconnected';
+                    serverState.className = 'server-state frozen';
+                }
+                
+                setTimeout(connectWebSocket, 1000);
+            };
+            
+            ws.onmessage = (event) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const data = new Uint8Array(reader.result);
+                    addLogEntry(`Received frame: ${Array.from(data).map(x => x.toString(16).padStart(2, '0')).join(' ')}`);
+                };
+                reader.readAsArrayBuffer(event.data);
+            };
+        }
+
+        async function updateStatus() {
+            try {
+                const response = await fetch('/status');
+                const data = await response.json();
+                
+                // Check if we're in frozen state
+                const freezeButton = document.getElementById('freezeButton');
+                if (data.cloud_app.frozen) {
+                    freezeButton.textContent = 'Resume';
+                    freezeButton.classList.add('frozen');
+                } else {
+                    freezeButton.textContent = 'Freeze';
+                    freezeButton.classList.remove('frozen');
+                }
+             
+                const isFrozen = freezeButton.textContent === 'Resume';
+                
+                if (!isFrozen) {  // Only update UI elements if not frozen
+                    // Update device panels
+                    updateDeviceStatus('deviceA', data.device_a);
+                    updateDeviceStatus('deviceB', data.device_b);
+                    updateDeviceStatus('moduleC', data.module_c);
+                    
+                    // Update cloud app stats
+                    if (data?.cloud_app?.pipeline_stats) {
+                        const stats = data.cloud_app.pipeline_stats;
+                        const rates = stats.frame_rates || { device_a: 0, device_b: 0, total: 0 };
+                        
+                        // Update frame counters
+                        updateMetricValue('deviceAFrames', stats.device_a_frames || 0);
+                        updateMetricValue('deviceBFrames', stats.device_b_frames || 0);
+                        updateMetricValue('controlFrames', stats.control_frames || 0);
+                        updateMetricValue('watchdogFrames', stats.watchdog_frames || 0);
+                        
+                        // Update rates
+                        updateMetricValue('deviceARate', `${(rates.device_a || 0).toFixed(1)} fps`);
+                        updateMetricValue('deviceBRate', `${(rates.device_b || 0).toFixed(1)} fps`);
+                        
+                        // Update statuses
+                        const controlStatus = stats.control_frames > 0 ? 'Active' : 'Idle';
+                        const pipelineState = rates.total > 0 ? 'Processing' : 'Idle';
+                        updateMetricValue('controlStatus', controlStatus, 'data-status', controlStatus);
+                        updateMetricValue('pipelineState', pipelineState, 'data-status', pipelineState);
+                        updateMetricValue('watchdogMode', data.cloud_app.auto_watchdog_enabled ? 'Auto' : 'Manual', 'data-mode');
+                        updateMetricValue('lastFrameTime', stats.last_frame_time);
+                    }
+
+                    // Update watchdog status
+                    if (data.cloud_app) {
+                        updateWatchdogStatus(data);
+                    }
+                }
+            } catch (error) {
+                console.error('Status update error:', error);
+            }
+        }
+
+        // Helper function to update metric values
+        function updateMetricValue(elementId, value, dataAttr = null, dataValue = null) {
+            const element = document.getElementById(elementId);
+            if (element) {
+                const valueSpan = element.querySelector('.value');
+                if (valueSpan) {
+                    if (dataAttr) {
+                        valueSpan.setAttribute(dataAttr, dataValue || value);
+                    }
+                    valueSpan.textContent = value;
+                }
+            }
+        }
+
+        async function sendControlValue() {
+            const value = parseInt(document.getElementById('controlValue').value);
+            
+            // Validate input
+            if (isNaN(value) || value < 0 || value > 255) {
+                addLogEntry('Error: Control value must be a number between 0 and 255');
+                return;
+            }
+
+            try {
+                const response = await fetch('/device_b/control', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ control_value: value })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.status === 'ok') {
+                    addLogEntry(`Control value ${value} set successfully at ${data.timestamp}`);
+                    // Force an immediate status update
+                    updateStatus();
+                } else {
+                    addLogEntry(`Error: ${data.message || 'Unknown error'}`);
+                }
+            } catch (error) {
+                addLogEntry(`Error setting control value: ${error.message}`);
+            }
+        }
+
+        function resetWatchdog() {
+            fetch('/watchdog/reset', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                addLogEntry(`Watchdog reset: ${data.message}`);
+                document.getElementById('watchdogInfo').textContent = 
+                    `Last manual reset at ${data.timestamp} via CloudApp`;
+                updateStatus(); // Update UI immediately
+            })
+            .catch(error => {
+                addLogEntry(`Error sending manual watchdog reset: ${error}`);
+            });
+        }
+
+        function setWatchdogInterval() {
+            const interval = document.getElementById('watchdogInterval').value;
+            fetch('/watchdog/interval', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ interval: parseFloat(interval) })
+            })
+            .then(response => response.json())
+            .then(data => {
+                addLogEntry(`Watchdog interval set to ${interval} seconds`);
+                updateStatus(); // Update UI immediately
+            })
+            .catch(error => {
+                addLogEntry(`Error setting watchdog interval: ${error}`);
+            });
+        }
+
+        function updateWatchdogStatus(data) {
+            const status = document.getElementById('watchdogStatus');
+            const info = document.getElementById('watchdogInfo');
+            
+            if (data.cloud_app.auto_watchdog_enabled) {
+                status.textContent = 'Active';
+                status.className = 'watchdog-status active';
+                info.textContent = `Auto reset interval: ${data.cloud_app.auto_watchdog_interval} seconds`;
+            } else {
+                status.textContent = 'Disabled';
+                status.className = 'watchdog-status disabled';
+                info.textContent = 'Automatic watchdog reset is disabled';
+            }
+        }
+
+        // Add simulation speed control
+        const simSpeedSlider = document.getElementById('simSpeed');
+        const simSpeedValue = document.getElementById('simSpeedValue');
+        
+        // Update displayed value when slider moves
+        simSpeedSlider.oninput = function() {
+            simSpeedValue.textContent = this.value;
+            updateSpeedIndicator(this.value);
+        }
+        
+        // Send new speed value when slider is released
+        simSpeedSlider.onchange = function() {
+            fetch('/timing/scale', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ scale: parseFloat(this.value) })
+            })
+            .then(response => response.json())
+            .then(data => {
+                addLogEntry(`Simulation speed set to ${this.value}x`);
+            })
+            .catch(error => {
+                addLogEntry(`Error setting simulation speed: ${error}`);
+            });
+        }
+        
+        // Get initial simulation speed
+        fetch('/timing/scale')
+            .then(response => response.json())
+            .then(data => {
+                simSpeedSlider.value = data.scale;
+                simSpeedValue.textContent = data.scale;
+                updateSpeedIndicator(data.scale);
+            })
+            .catch(error => {
+                console.error('Error getting simulation speed:', error);
+            });
+
+        function updateSpeedIndicator(speed) {
+            const indicator = document.getElementById('speedIndicator');
+            const value = parseFloat(speed);
+            indicator.textContent = value.toFixed(1) + 'x';
+            
+            // Update indicator color based on speed
+            indicator.className = 'simulation-speed ' + 
+                (value < 1.0 ? 'fast' : value > 1.0 ? 'slow' : 'normal');
+        }
+
+        // Start WebSocket connection and status updates
+        connectWebSocket();
+        initializeStatusUpdates();
+
+        // Function to manage status update interval with scaling
+        function updateStatusInterval() {
+            fetch('/timing/scale')
+                .then(response => response.json())
+                .then(data => {
+                    const baseInterval = 100; // Base 100ms refresh rate
+                    const scaledInterval = Math.max(50, baseInterval * data.scale); // Minimum 50ms, scale with timing
+                    
+                    if (statusUpdateInterval) {
+                        clearInterval(statusUpdateInterval);
+                    }
+                    
+                    // Immediate update
+                    updateStatus();
+                    
+                    // Set up scaled interval updates
+                    statusUpdateInterval = setInterval(() => {
+                        fetch('/status')
+                            .then(response => response.json())
+                            .then(data => {
+                                if (data?.cloud_app?.pipeline_stats) {
+                                    // Force update even if values haven't changed
+                                    previousValues = {}; // Reset previous values to force refresh
+                                    updateDeviceStatus('cloudApp', data.cloud_app);
+                                    updateDeviceStatus('deviceA', data.device_a);
+                                    updateDeviceStatus('deviceB', data.device_b);
+                                    updateDeviceStatus('moduleC', data.module_c);
+                                    updateWatchdogStatus(data);
+                                }
+                            })
+                            .catch(error => {
+                                console.error('Status update error:', error);
+                                document.querySelectorAll('.status-indicator').forEach(el => {
+                                    el.className = 'status-indicator offline';
+                                });
+                            });
+                    }, scaledInterval);
+                    
+                    console.log(`Status updates configured: ${scaledInterval}ms interval, scale ${data.scale}x`);
+                })
+                .catch(error => console.error('Error setting up status updates:', error));
+        }
+
+        // Initialize status updates
+        function initializeStatusUpdates() {
+            // Clear any existing interval
+            if (statusUpdateInterval) {
+                clearInterval(statusUpdateInterval);
+            }
+
+            // Force an immediate status update
+            updateStatus();
+
+            // Set up regular polling
+            statusUpdateInterval = setInterval(async () => {
+                if (!isFrozen) {
+                    try {
+                        const response = await fetch('/status');
+                        const data = await response.json();
+                        
+                        // Update all device statuses
+                        updateDeviceStatus('deviceA', data.device_a);
+                        updateDeviceStatus('deviceB', data.device_b);
+                        updateDeviceStatus('moduleC', data.module_c);
+                        
+                        // Update cloud app stats
+                        if (data?.cloud_app?.pipeline_stats) {
+                            const stats = data.cloud_app.pipeline_stats;
+                            const rates = stats.frame_rates || { device_a: 0, device_b: 0, total: 0 };
+                            
+                            // Update frame counters and rates
+                            Object.entries({
+                                'deviceAFrames': stats.device_a_frames || 0,
+                                'deviceBFrames': stats.device_b_frames || 0,
+                                'controlFrames': stats.control_frames || 0,
+                                'watchdogFrames': stats.watchdog_frames || 0,
+                                'deviceARate': `${(rates.device_a || 0).toFixed(1)} fps`,
+                                'deviceBRate': `${(rates.device_b || 0).toFixed(1)} fps`
+                            }).forEach(([id, value]) => updateMetricValue(id, value));
+                        }
+                    } catch (error) {
+                        console.error('Status update error:', error);
+                    }
+                }
+            }, 100); // Poll every 100ms for responsive updates
+        }
+
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            connectWebSocket();
+            initializeStatusUpdates();
+        });
+
+        document.getElementById('simSpeed').addEventListener('input', function(e) {
+            const value = parseFloat(this.value);
+            const speedIndicator = document.getElementById('speedIndicator');
+            const speedValue = document.getElementById('simSpeedValue');
+            
+            // Update the display value
+            speedValue.textContent = value.toFixed(1) + 'x';
+            speedIndicator.textContent = value.toFixed(1) + 'x';
+            
+            // Update the slider color and indicator class
+            const percent = (value - this.min) / (this.max - this.min) * 100;
+            let color;
+            let className;
+            
+            if (value < 1.0) {
+                color = '#ff9800'; // Fast - Orange
+                className = 'speed-fast';
+            } else if (value === 1.0) {
+                color = '#4CAF50'; // Normal - Green
+                className = 'speed-normal';
+            } else if (value <= 10.0) {
+                color = '#2196F3'; // Slow - Blue
+                className = 'speed-slow';
+            } else {
+                color = '#9C27B0'; // Very slow - Purple
+                className = 'speed-very-slow';
+            }
+            
+            // Update flow animation duration based on speed
+            document.documentElement.style.setProperty('--flow-duration', `${1.5 * value}s`);
+            
+            // Update the indicator class
+            speedIndicator.className = `simulation-speed ${className}`;
+        });
+
+        // Add control functions
+        async function toggleFreeze() {
+            try {
+                const response = await fetch('/control/freeze', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+                const data = await response.json();
+                
+                const freezeButton = document.getElementById('freezeButton');
+                
+                if (data.state === 'frozen') {
+                    freezeButton.textContent = 'Resume';
+                    freezeButton.classList.add('frozen');
+                    freezeButton.style.backgroundColor = '#4CAF50';
+                    isFrozen = true;
+                    // Stop status updates when frozen
+                    if (statusUpdateInterval) {
+                        clearInterval(statusUpdateInterval);
+                        statusUpdateInterval = null;
+                    }
+                } else {
+                    freezeButton.textContent = 'Freeze';
+                    freezeButton.classList.remove('frozen');
+                    freezeButton.style.backgroundColor = '#2196F3';
+                    isFrozen = false;
+                    // Resume status updates
+                    initializeStatusUpdates();
+                }
+                
+                const serverState = document.getElementById('serverState');
+                serverState.textContent = data.state === 'frozen' ? 'Frozen' : 'Running';
+                serverState.className = `server-state ${data.state}`;
+                
+                const mainGrid = document.querySelector('.main-grid');
+                if (data.state === 'frozen') {
+                    mainGrid.classList.add('frozen');
+                    addLogEntry('Server frozen - state inspection mode');
+                } else {
+                    mainGrid.classList.remove('frozen');
+                    addLogEntry('Server resumed normal operation');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                addLogEntry(`Error toggling freeze state: ${error}`);
+            }
+        }
+
+        function haltServer() {
+            if (confirm('Are you sure you want to halt the server?')) {
+                const serverState = document.getElementById('serverState');
+                const mainGrid = document.querySelector('.main-grid');
+                
+                serverState.textContent = 'Shutting Down...';
+                serverState.className = 'server-state frozen';
+                mainGrid.classList.add('frozen');
+                
+                fetch('/control/halt', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    addLogEntry('Server halt command sent. Shutting down...');
+                    // Add visual feedback during shutdown
+                    document.body.innerHTML += '<div class="shutdown-overlay"><h2>Server Shutting Down...</h2></div>';
+                })
+                .catch(error => {
+                    addLogEntry(`Error halting server: ${error}`);
+                });
+            }
+        }
+
+        // Add to existing script section, after other code...
+
+        // Add animation helper function
+        function animateValueChanges(elementId) {
+            const element = document.getElementById(elementId);
+            const value = element.querySelector('.value');
+            if (value) {
+                value.classList.remove('changed');
+                void value.offsetWidth; // Trigger reflow
+                value.classList.add('changed');
+            }
+        }
+
+ 
+        
+        function initializeStatusUpdates() {
+            let statusUpdateInterval;
+            const baseInterval = 1000; // 1 second base interval
+
+            async function updateStatusInterval() {
+                try {
+                    const response = await fetch('/timing/scale');
+                    const data = await response.json();
+                    const scaledInterval = baseInterval * data.scale;
+                    
+                    if (statusUpdateInterval) {
+                        clearInterval(statusUpdateInterval);
+                    }
+                    
+                    statusUpdateInterval = setInterval(async () => {
+                        await updateStatus();
+                    }, scaledInterval);
+                    
+                } catch (error) {
+                    console.error('Error updating status interval:', error);
+                }
+            }
+
+            // Initial setup
+            updateStatusInterval();
+
+            // Listen for simulation speed changes
+            document.getElementById('simSpeed').addEventListener('change', updateStatusInterval);
+        }
+
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            connectWebSocket();
+            initializeStatusUpdates();
+        });
+    </script>
+</body>
+</html>

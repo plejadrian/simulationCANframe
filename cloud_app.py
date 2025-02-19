@@ -597,9 +597,12 @@ class CloudApp:
                     "last_rates_update": current_time
                 })
 
-    def run(self, host="0.0.0.0", port=None):
+    def run( self, host="0.0.0.0", port=None ):
         """Run the FastAPI application with automatic port selection"""
-        if port is None:
+
+        if port is not None:
+            logger.info( f"CloudApp server, port is already assignet to:{port}" )
+        else:
             # Find available port
             for p in range(8000, 8010):
                 try:

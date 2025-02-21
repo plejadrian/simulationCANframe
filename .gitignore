@@ -1,6 +1,7 @@
 # Ignore Python bytecode files
 __pycache__/
 *.pyc
+*.pyo
 
 # Ignore logs
 logs/
@@ -18,3 +19,4 @@ venv/
 # Ignore other specific files or directories
 node_modules/
 .DS_Store
+

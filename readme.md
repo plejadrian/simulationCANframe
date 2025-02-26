@@ -64,7 +64,7 @@ The simulation algorithm is based on the "APP in the cloud" or "Cloud App," whic
 
 ## Problem Description
 
-[   **Figure: System Diagram**   ](doc/_situation.jpg)
+![   **Figure: System Diagram**   ](doc/_situation.jpg)
 
 The system consists of two physical devices, A and B, connected to a WAN (Wide Area Network) via CAN-TCP gateways. These gateways provide a TCP server on the WAN side, which accepts and sends frames in a format described later in the document.
 
@@ -92,7 +92,7 @@ The task involves creating the following in Python:
 **CAN Data Transfer to Ethernet Data:**  
 CAN ID and data are transferred into a 13-byte format.
 
-[   **Image: CANframe**   ](doc/_CANframe.jpg)
+![   **Image: CANframe**   ](doc/_CANframe.jpg)
 
 ---
 

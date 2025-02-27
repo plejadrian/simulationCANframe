@@ -1,20 +1,28 @@
 import time
 import asyncio
 import logging
+from typing import Dict, Any
 from config import get_scale_timing
+from constants import (
+    DEFAULT_MODULE_C_CYCLE_TIME,
+    MODULE_C_MULTIPLIER_1,
+    MODULE_C_MULTIPLIER_10,
+    MODULE_C_MULTIPLIER_100,
+    MODULE_C_MULTIPLIER_1000
+)
 
 logger = logging.getLogger(__name__)
 
 class ModuleC:
     """Module C - performs real-time calculations on received data"""
     def __init__(self):
-        self.last_values = {
+        self.last_values: Dict[str, Any] = {
             "device_a": 0,  # Numeric operational value from Device A (1, 2, or 3)
             "device_b": 0,  # Store single numeric value
             "calculation_result": 0,
             "last_calculation_time": 0
         }
-        self._base_cycle_time = 0.1  # Base cycle time (100ms)
+        self._base_cycle_time = DEFAULT_MODULE_C_CYCLE_TIME
         self._running = True
         self._frozen = False
         
@@ -37,22 +45,25 @@ class ModuleC:
         """Get the scaled cycle time"""
         return get_scale_timing() * self._base_cycle_time
     
-    def _get_operational_value(self):
-        """Get operational value to multiply based on current second:
-        1:    01-15 seconds
-        10:   16-30 seconds
-        100:  31-45 seconds
-        1000: 46-00 seconds
+    def _get_operational_value(self) -> int:
+        """Get operational value to multiply based on current second.
+        
+        Returns:
+            int: One of the following multiplier values based on the current second:
+                - MODULE_C_MULTIPLIER_1 (1): 01-15 seconds
+                - MODULE_C_MULTIPLIER_10 (10): 16-30 seconds
+                - MODULE_C_MULTIPLIER_100 (100): 31-45 seconds
+                - MODULE_C_MULTIPLIER_1000 (1000): 46-00 seconds
         """
         current_second = int(time.time()) % 60
         if current_second <= 15:
-            return 1
+            return MODULE_C_MULTIPLIER_1
         elif current_second <= 30:
-            return 10
+            return MODULE_C_MULTIPLIER_10
         elif current_second <= 45:
-            return 100
+            return MODULE_C_MULTIPLIER_100
         else:
-            return 1000
+            return MODULE_C_MULTIPLIER_1000
         
     async def process_data(self):
         """Process data in real-time with scaled cycle time"""

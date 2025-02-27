@@ -4,19 +4,28 @@ import logging
 import webbrowser
 import time
 import requests
+import socket
 from threading import Thread
 from device_emulator import DeviceA, DeviceB
 from module_c import ModuleC
 from cloud_app import CloudApp
+from constants import DEFAULT_PORT, PORT_RANGE_MAX, LOCALHOST, DEFAULT_FRAME_RATE, MAX_BROWSER_LAUNCH_ATTEMPTS, DEFAULT_BROWSER_WAIT_TIME
 
 logger = logging.getLogger(__name__)
 
-def open_browser(port):
-    """Wait for server to start and open browser"""
-    url = f'http://127.0.0.1:{port}'
-    max_attempts = 10
+def open_browser(port: int) -> None:
+    """Wait for server to start and open browser
     
-    for attempt in range(max_attempts):
+    Args:
+        port (int): The port number where the server is running
+        
+    Note:
+        This function attempts to connect to the server multiple times before
+        opening the browser to ensure the server is ready.
+    """
+    url = f'http://{LOCALHOST}:{port}'
+    
+    for attempt in range(MAX_BROWSER_LAUNCH_ATTEMPTS):
         try:
             # Try to connect to server
             response = requests.get(url)
@@ -25,19 +34,30 @@ def open_browser(port):
                 webbrowser.open(url)
                 return
         except requests.ConnectionError:
-            logger.debug(f"Server not ready (attempt {attempt + 1}/{max_attempts})")
-            time.sleep(1)
+            logger.debug(f"Server not ready (attempt {attempt + 1}/{MAX_BROWSER_LAUNCH_ATTEMPTS})")
+            time.sleep(DEFAULT_BROWSER_WAIT_TIME)
+        except Exception as e:
+            logger.error(f"Error checking server status: {e}")
+            time.sleep(DEFAULT_BROWSER_WAIT_TIME)
     
     logger.warning("Failed to detect server startup, trying to open browser anyway")
     webbrowser.open(url)
 
 
 
-def get_available_port(start_port=8000):
-    """Find an available port starting from start_port"""
-    import socket
+def get_available_port(start_port: int = DEFAULT_PORT) -> int:
+    """Find an available port starting from start_port
     
-    for port in range(start_port, start_port + 10):
+    Args:
+        start_port (int): The starting port number to check
+        
+    Returns:
+        int: An available port number
+        
+    Raises:
+        RuntimeError: If no available ports are found in the specified range
+    """
+    for port in range(start_port, start_port + PORT_RANGE_MAX):
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.bind(('', port))
@@ -45,8 +65,12 @@ def get_available_port(start_port=8000):
                 logger.info(f"Found available port: {port}")
                 return port
         except OSError:
+            logger.debug(f"Port {port} is not available, trying next port")
             continue
-    raise RuntimeError("No available ports found in range 8000-8009")
+    
+    error_msg = f"No available ports found in range {start_port}-{start_port + PORT_RANGE_MAX - 1}"
+    logger.error(error_msg)
+    raise RuntimeError(error_msg)
 
 def main():
     # Configure detailed logging
@@ -61,8 +85,8 @@ def main():
 
     try:
         # Initialize devices
-        device_a = DeviceA(frame_rate=10)
-        device_b = DeviceB(frame_rate=10)
+        device_a = DeviceA(frame_rate=DEFAULT_FRAME_RATE)
+        device_b = DeviceB(frame_rate=DEFAULT_FRAME_RATE)
         module_c = ModuleC()
 
         # Create CloudApp instance

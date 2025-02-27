@@ -11,6 +11,8 @@ from fastapi.responses import RedirectResponse
 import uvicorn
 from can_frame import CANFrame
 from config import get_scale_timing, set_scale_timing
+from websocket_handler import WebSocketHandler
+from cloud_pipeline import CloudPipeline
 
 logger = logging.getLogger(__name__)
 
@@ -32,57 +34,33 @@ class CloudApp:
         self.module_c = module_c
         self.watchdog_task = None
         self.watchdog_interval = 0
-        self._last_received_frames = {}
         self._auto_watchdog_enabled = False
-        self._last_watchdog_status = "ok"
-        self._last_watchdog_reset_time = time.time()
         self._device_a_generator = None
         self._device_b_generator = None
         self._device_tasks = []
         self._running = False
         self._frozen = False
-        self._reset_counters_task = None  # Add task reference
         
-        # Initialize statistics for pipeline monitoring
-        self._pipeline_stats = {
-            "frames_processed": 0,
-            "device_a_frames": 0,
-            "device_b_frames": 0,
-            "control_frames": 0,
-            "watchdog_frames": 0,
-            "last_frame_time": 0,
-            "frame_rates": {
-                "device_a": 0.0,
-                "device_b": 0.0,
-                "total": 0.0
-            },
-            "last_rates_update": time.time()
-        }
+        # Initialize WebSocket handler
+        self.websocket_handler = WebSocketHandler()
         
-        # Add frame handlers mapping
-        self._frame_handlers = {
-            0x18FF0001: self._handle_device_a_frame,  # Device A status
-            0x18FF0002: self._handle_device_b_frame,  # Device B status
-            0x100: self._handle_watchdog_frame,       # Watchdog
-            0x200: self._handle_control_frame         # Control
-        }
+        # Initialize Cloud Pipeline
+        self.cloud_pipeline = CloudPipeline(device_a, device_b, module_c)
         
         # Initialize FastAPI
         self.app = FastAPI(lifespan=self._lifespan)
         self.setup_routes()
-        self._active_websockets = set()
         
     @asynccontextmanager
     async def _lifespan(self, app: FastAPI):
         """Manage application cycle"""
         logger.info("Starting CloudApp and all devices")
         # Start counter reset task here where we have an event loop
-        self._reset_counters_task = asyncio.create_task(self._reset_counters_periodic())
+        await self.cloud_pipeline.start()
         await self.start()
         yield
         logger.info("Shutting down CloudApp and all devices")
-        if self._reset_counters_task:
-            self._reset_counters_task.cancel()
+        await self.cloud_pipeline.stop()
         await self.stop()
 
     def setup_routes(self):
@@ -150,52 +128,14 @@ class CloudApp:
         # WebSocket endpoint
         @self.app.websocket("/ws")
         async def websocket_endpoint(websocket: WebSocket):
-            await self._handle_websocket(websocket)
+            await self.websocket_handler.handle_websocket(websocket, self.process_device_frame)
 
-    async def _handle_websocket(self, websocket: WebSocket):
-        """Handle WebSocket connection and messaging"""
-        await websocket.accept()
-        self._active_websockets.add(websocket)
-        logger.debug("WebSocket connection accepted")
-        
-        try:
-            # Start receiving messages
-            while True:
-                data = await websocket.receive_bytes()
-                # Process through our pipeline with scaled timing
-                await self.process_device_frame(data)
-                # Add small delay scaled by simulation speed
-                await asyncio.sleep(0.01 * get_scale_timing())
-                logger.debug("WebSocket message processed through CloudApp")
-        except Exception as e:
-            logger.error(f"WebSocket error: {e}")
-        finally:
-            self._active_websockets.remove(websocket)
-            await websocket.close()
-            logger.debug("WebSocket connection closed")
-
-    async def _broadcast_frame(self, frame_bytes: bytes):
-        """Broadcast frame to all connected WebSocket clients"""
-        disconnected = set()
-        for ws in self._active_websockets:
-            try:
-                await ws.send_bytes(frame_bytes)
-            except Exception:
-                disconnected.add(ws)
-        
-        # Clean up disconnected clients
-        self._active_websockets.difference_update(disconnected)
+    # WebSocket handling is now delegated to WebSocketHandler class
 
     async def start(self):
         """Start all device tasks and frame broadcasting"""
         if not self._running:
             self._running = True
-            #### device generators have been now initialized in their constructors
-            ###self._device_a_generator = self.device_a.generate_frames()
-            ###self._device_b_generator = self.device_b.generate_frames()
-            
-            #### device B watchdog has been sterted in DevceB constructor
-            ###await self.device_b.start_watchdog()
             
             # Start ModuleC processing
             self._device_tasks.append(asyncio.create_task(self.module_c.process_data()))
@@ -226,63 +166,11 @@ class CloudApp:
         self._device_b_generator = None
         logger.info("CloudApp stopped - all devices cleaned up")
         
-    async def _handle_device_a_frame(self, frame: CANFrame):
-        """Handle Device A status frame"""
-        self._pipeline_stats["device_a_frames"] += 1
-        # Update ModuleC with Device A's operational value from first byte
-        operational_value = frame.data[0]
-        self.module_c.update_device_a(operational_value)
-        # Update Device A's status with latest values
-        self.device_a.status["operational"] = operational_value
-        uptime_bytes = frame.data[1:5]
-        self.device_a.status["uptime"] = int.from_bytes(uptime_bytes, 'big')
-        logger.debug(f"CloudApp: Device A operational value {operational_value} sent to ModuleC")
-
-    async def _handle_watchdog_frame(self, frame: CANFrame):
-        """Handle watchdog reset frame"""
-        self._pipeline_stats["watchdog_frames"] += 1
-        self._last_watchdog_reset_time = time.time()
-        logger.debug(f"CloudApp: Processing watchdog reset at {time.strftime('%H:%M:%S', time.localtime(self._last_watchdog_reset_time))}")
-
-    async def _handle_device_b_frame(self, frame: CANFrame):
-        """Handle Device B status frame"""
-        self._pipeline_stats["device_b_frames"] += 1
-        control_value = frame.data[1]  # Control value is in second byte
-        self._last_watchdog_status = "ok" if frame.data[3] else "triggered"
-        
-        # Update Module C with the control value
-        self.module_c.update_device_b(control_value)
-        logger.debug(f"CloudApp: Device B control value {control_value} sent to ModuleC")
-        logger.debug(f"CloudApp: Watchdog status is {self._last_watchdog_status}")
-
-    async def _handle_control_frame(self, frame: CANFrame):
-        """Handle control command frame"""
-        self._pipeline_stats["control_frames"] += 1
-        logger.debug(f"CloudApp: Processing control command with value {frame.data[0]}")
-
     async def process_device_frame(self, frame_bytes: bytes):
         """Process incoming frame through the pipeline"""
         try:
-            frame = CANFrame.from_ethernet(frame_bytes)
-            current_time = time.time()
-            
-            # Don't process if frozen
-            if self._frozen:
-                return frame
-
-            # Always increment the processed frames counter
-            self._pipeline_stats["frames_processed"] += 1
-            self._pipeline_stats["last_frame_time"] = current_time
-            
-            # Call appropriate frame handler based on CAN ID
-            if frame.can_id in self._frame_handlers:
-                await self._frame_handlers[frame.can_id](frame)
-                
-            # Store frame for reference
-            self._last_received_frames[frame.can_id] = frame
-            
-            return frame
-            
+            # Delegate frame processing to the CloudPipeline
+            return await self.cloud_pipeline.process_device_frame(frame_bytes)
         except Exception as e:
             logger.error(f"Error processing frame: {e}")
             raise
@@ -421,16 +309,20 @@ class CloudApp:
             logger.debug("Sending watchdog reset frame to Device B")
             await self.device_b.handle_frame(frame_bytes)
             
-            self._last_watchdog_reset_time = time.time()
-            timestamp = time.strftime("%H:%M:%S", time.localtime(self._last_watchdog_reset_time))
+            # Get pipeline status for the response
+            pipeline_status = self.cloud_pipeline.get_pipeline_status()
+            timestamp = pipeline_status["last_watchdog_reset"]
             logger.info(f"Manual watchdog reset completed at {timestamp}")
             
             return {
                 "status": "ok",
                 "timestamp": timestamp,
                 "message": "Watchdog reset processed through central CloudApp",
-                "watchdog_status": self._last_watchdog_status
+                "watchdog_status": pipeline_status["last_watchdog_status"]
             }
+        except Exception as e:
+            logger.error(f"Error in manual watchdog reset: {e}")
+            raise
         except Exception as e:
             logger.error(f"Error in manual watchdog reset: {e}")
             raise
@@ -446,6 +338,9 @@ class CloudApp:
         if self._frozen and hasattr(self.device_b, '_frozen_watchdog_status'):
             device_b_status["watchdog_status"] = self.device_b._frozen_watchdog_status
 
+        # Get pipeline status from CloudPipeline
+        pipeline_status = self.cloud_pipeline.get_pipeline_status()
+
         return {
             "device_a": self.device_a.status,
             "device_b": device_b_status,
@@ -456,51 +351,37 @@ class CloudApp:
             "cloud_app": {
                 "auto_watchdog_interval": self.watchdog_interval,
                 "auto_watchdog_enabled": self._auto_watchdog_enabled,
-                "last_watchdog_status": self._last_watchdog_status,
-                "last_watchdog_reset": time.strftime("%H:%M:%S", time.localtime(self._last_watchdog_reset_time)),
-                "last_received_frame_ids": [f"0x{id:X}" for id in self._last_received_frames.keys()],
-                "pipeline_stats": {
-                    **self._pipeline_stats,
-                    "last_frame_time": time.strftime("%H:%M:%S", 
-                        time.localtime(self._pipeline_stats["last_frame_time"]))
-                        if self._pipeline_stats["last_frame_time"] > 0 else "Never"
-                },
-                "frozen": self._frozen  # Add frozen state to status response
+                "last_watchdog_status": pipeline_status["last_watchdog_status"],
+                "last_watchdog_reset": pipeline_status["last_watchdog_reset"],
+                "last_received_frame_ids": pipeline_status["last_received_frame_ids"],
+                "pipeline_stats": pipeline_status["pipeline_stats"],
+                "frozen": self._frozen,  # Add frozen state to status response
+                "websocket_connections": self.websocket_handler.active_connections_count
             }
         }
 
     async def get_device_a_frame(self):
         """Get next frame from Device A through CloudApp pipeline"""
-        # if not self._running:
-        #     await self.start()
-        # if not self._device_a_generator:
-        #     self._device_a_generator = self.device_a.generate_frames()
         try:
-            frame_bytes = await anext( self.device_a.frames_iterator )
-            # Process through our pipeline
-            await self.process_device_frame(frame_bytes)
-            return frame_bytes
-        # except (StopAsyncIteration, StopIteration):
-        #     self._device_a_generator = self.device_a.generate_frames()
-        #     return None
+            # Use async for instead of anext for Python 3.9 compatibility
+            async for frame_bytes in self.device_a.frames_iterator:
+                # Process through our pipeline
+                await self.process_device_frame(frame_bytes)
+                return frame_bytes
+            return None
         except Exception as e:
             logger.error(f"Error getting Device A frame: {e}")
             return None
 
     async def get_device_b_frame(self):
         """Get next frame from Device B through CloudApp pipeline"""
-        # if not self._running:
-        #     await self.start()
-        # if not self._device_b_generator:
-        #     self._device_b_generator = self.device_b.generate_frames()
         try:
-            frame_bytes = await anext( self.device_b.frames_iterator )
-            # Process through our pipeline
-            await self.process_device_frame(frame_bytes)
-            return frame_bytes
-        # except (StopAsyncIteration, StopIteration):
-        #     self._device_b_generator = self.device_b.generate_frames()
-        #     return None
+            # Use async for instead of anext for Python 3.9 compatibility
+            async for frame_bytes in self.device_b.frames_iterator:
+                # Process through our pipeline
+                await self.process_device_frame(frame_bytes)
+                return frame_bytes
+            return None
         except Exception as e:
             logger.error(f"Error getting Device B frame: {e}")
             return None
@@ -513,12 +394,12 @@ class CloudApp:
                     # Get and broadcast Device A frame
                     frame = await self.get_device_a_frame()
                     if frame:
-                        await self._broadcast_frame(frame)
+                        await self.websocket_handler.broadcast_frame(frame)
                     
                     # Get and broadcast Device B frame
                     frame = await self.get_device_b_frame()
                     if frame:
-                        await self._broadcast_frame(frame)
+                        await self.websocket_handler.broadcast_frame(frame)
                 
                 # Base rate 10Hz scaled by simulation speed
                 await asyncio.sleep(0.1 * get_scale_timing())
@@ -550,6 +431,8 @@ class CloudApp:
     def set_frozen(self, state: bool):
         """Set the frozen state of the application"""
         self._frozen = state
+        # Update pipeline frozen state
+        self.cloud_pipeline.set_frozen(state)
         logger.info(f"Application freeze state set to: {state}")
         if state:
             # Pause device emulators and monitoring when frozen
@@ -572,30 +455,7 @@ class CloudApp:
                 if self._auto_watchdog_enabled:
                     asyncio.create_task(self.start_auto_watchdog())
 
-    async def _reset_counters_periodic(self):
-        """Periodically reset frame counters to ensure accurate rates"""
-        while True:
-            await asyncio.sleep(10 * get_scale_timing())  # Now scaled by timing factor
-            if not self._frozen:
-                current_time = time.time()
-                elapsed = current_time - self._pipeline_stats["last_rates_update"]
-                
-                # Calculate final rates before reset
-                self._pipeline_stats["frame_rates"] = {
-                    "device_a": (self._pipeline_stats["device_a_frames"] / max(1, elapsed)) * get_scale_timing(),
-                    "device_b": (self._pipeline_stats["device_b_frames"] / max(1, elapsed)) * get_scale_timing(),
-                    "total": (self._pipeline_stats["frames_processed"] / max(1, elapsed)) * get_scale_timing()
-                }
-                
-                # Reset counters but keep the rates
-                self._pipeline_stats.update({
-                    "frames_processed": 0,
-                    "device_a_frames": 0,
-                    "device_b_frames": 0,
-                    "control_frames": 0,
-                    "watchdog_frames": 0,
-                    "last_rates_update": current_time
-                })
+    # Counter reset functionality is now handled by CloudPipeline
 
     def run( self, host="0.0.0.0", port=None ):
         """Run the FastAPI application with automatic port selection"""

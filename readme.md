@@ -1,6 +1,77 @@
-# Project Overview
+# CAN Frame Simulation Project
 
-This project is attemptong to solve the "case" task described in the attached document located in the "doc" directory.
+## Overview
+This project simulates CAN (Controller Area Network) frame communication between devices over Ethernet/TCP. It includes device emulators, a cloud application for processing frames, and a web interface for monitoring and control.
+
+## Project Structure
+- `main.py` - Entry point for the application
+- `can_frame.py` - CAN frame encoding/decoding utilities
+- `device_emulator.py` - Simulates devices that generate CAN frames
+- `module_c.py` - Performs calculations based on device data
+- `cloud_app.py` - FastAPI application that manages communication
+- `cloud_pipeline.py` - Processes CAN frames through a pipeline
+- `websocket_handler.py` - Manages WebSocket connections
+- `config.py` - Global configuration settings
+- `static/` - Web interface files (HTML, CSS, JavaScript)
+
+## Features
+- Device A: Emulates a device that reports status
+- Device B: Emulates a device that reports status and accepts control commands
+- Module C: Performs calculations based on data from Devices A and B
+- Cloud App: Manages communication between devices and web interface
+- Web Interface: Provides monitoring and control capabilities
+
+## Requirements
+See `requirements.txt` for a complete list of dependencies.
+
+Main dependencies:
+- Python 3.9+
+- FastAPI
+- Uvicorn
+- WebSockets
+
+## Installation
+
+```bash
+# Create and activate a virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+## Running the Application
+
+```bash
+python main.py
+```
+
+The application will automatically open a web browser pointing to the local server (default: http://127.0.0.1:8000).
+
+## Development
+
+### Simulation Speed
+You can adjust the simulation speed using the web interface or by modifying the `SCALE_TIMING` value in `config.py`.
+
+### Adding New Devices
+To add new device emulators:
+1. Create a new class that inherits from `DeviceEmulator` in `device_emulator.py`
+2. Implement the required methods
+3. Update the `CloudApp` and `CloudPipeline` classes to handle the new device
+
+### Logging
+The application uses Python's built-in logging module. Logs are written to both the console and `simulation.log`.
+
+## License
+This project is proprietary and confidential.
+
+
+
+
+# Motivation
+
+This project is attempting to solve the "case" task described in the attached document located in the "doc" directory.
 
 ## Setup Instructions
 

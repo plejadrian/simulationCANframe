@@ -1,12 +1,19 @@
+from constants import CAN_STANDARD_ID_MAX, CAN_EXTENDED_ID_MAX, CAN_FRAME_MAX_DATA_LENGTH
+
 class CANFrame:
     def __init__(self, extended=False, remote=False, can_id=0, data=None):
         """
         Initialize a CAN frame
+        
         Args:
             extended (bool): True for extended frame (29-bit ID), False for standard frame (11-bit ID)
             remote (bool): True for remote frame, False for data frame
             can_id (int): CAN identifier (11 or 29 bits)
             data (list): Data bytes (up to 8 bytes)
+            
+        Raises:
+            ValueError: If CAN ID exceeds allowed range or data length exceeds 8 bytes
+            TypeError: If data is not iterable
         """
         self.extended = extended
         self.remote = remote
@@ -14,13 +21,19 @@ class CANFrame:
         self.data = data if data is not None else []
         
         # Validate CAN ID length
-        max_id = 0x1FFFFFFF if extended else 0x7FF
+        max_id = CAN_EXTENDED_ID_MAX if extended else CAN_STANDARD_ID_MAX
         if not 0 <= can_id <= max_id:
             raise ValueError(f"Invalid CAN ID for {'extended' if extended else 'standard'} frame")
         
         # Validate data length
-        if len(self.data) > 8:
-            raise ValueError("Data length cannot exceed 8 bytes")
+        if len(self.data) > CAN_FRAME_MAX_DATA_LENGTH:
+            raise ValueError(f"Data length cannot exceed {CAN_FRAME_MAX_DATA_LENGTH} bytes")
+            
+        # Validate data type
+        try:
+            self.data = list(self.data)
+        except TypeError:
+            raise TypeError("Data must be an iterable type")
         
     def to_ethernet(self):
         """Convert CAN frame to Ethernet format"""

@@ -3,12 +3,16 @@ import logging
 import time
 from can_frame import CANFrame
 from config import get_scale_timing
-
-# Configure logging with debug level
-logging.basicConfig(
-    level=logging.DEBUG,  # Changed from INFO to DEBUG
-    format='%(asctime)s - %(levelname)s - %(message)s'
+from constants import (
+    DEVICE_A_STATUS_ID, 
+    DEVICE_B_STATUS_ID,
+    DEVICE_A_OP_VALUE_1,
+    DEVICE_A_OP_VALUE_2,
+    DEVICE_A_OP_VALUE_3,
+    DEFAULT_FRAME_RATE
 )
+
+# Configure module logger
 logger = logging.getLogger(__name__)
 
 class DeviceEmulator:
@@ -108,8 +112,8 @@ class DeviceB(DeviceEmulator):
         self._base_watchdog_timeout = 0.5
         self._watchdog_task = None
         self._frozen_watchdog_status = None
-
-        ###self.start_watchdog()        
+        
+        # Don't start watchdog here - it will be started when generate_frames is called
 
     def set_running(self, state: bool):
         """Override to handle watchdog status"""
@@ -141,11 +145,17 @@ class DeviceB(DeviceEmulator):
                 # Only check watchdog when running and not frozen
                 if self._running and not self._frozen:
                     current_time = time.time()
-                    if current_time - self._last_watchdog_reset > ( self._watchdog_timeout  + 0.03 ):
-                    
-                        if self.registers["watchdog_status"] != "triggered":
+                    # Increased buffer time to prevent race conditions with exactly 1 second intervals
+                    if current_time - self._last_watchdog_reset > self._watchdog_timeout * 0.95:
+                        # Force status check on each cycle to ensure UI updates correctly
+                        if current_time - self._last_watchdog_reset > self._watchdog_timeout:
                             self.registers["watchdog_status"] = "triggered"
                             logger.warning("Watchdog triggered")
+                        else:
+                            # Ensure status is properly set to "ok" when within timeout
+                            if self.registers["watchdog_status"] != "ok":
+                                self.registers["watchdog_status"] = "ok"
+                                logger.debug("Watchdog status reset to ok")
                 await asyncio.sleep(0.1 * get_scale_timing())
             except asyncio.CancelledError:
                 logger.debug("Watchdog monitor cancelled")
@@ -158,10 +168,7 @@ class DeviceB(DeviceEmulator):
         """Generate status frames at configured rate"""
         logger.debug("Device B: Starting frame generation")
         
-        # # Initialize watchdog monitor when frames start generating
-        # await self.start_watchdog()
-
-        # Start watchdog monitor when frame generation begins
+        # Start watchdog monitor if not already running
         if not self._watchdog_task or self._watchdog_task.done():
             self._watchdog_task = asyncio.create_task(self._watchdog_monitor())
             logger.debug("Device B: Watchdog monitor started before frame generation")
@@ -189,8 +196,8 @@ class DeviceB(DeviceEmulator):
         """Handle incoming CAN frame"""
         try:
             # Don't process frames if frozen
-            ###if self._frozen:
-            ### return
+            if self._frozen:
+                return
             
             frame = CANFrame.from_ethernet(frame_bytes)
             logger.debug(f"Device B received frame: CAN ID={frame.can_id:X}, Data={frame.data}")
